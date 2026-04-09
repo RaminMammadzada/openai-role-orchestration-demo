@@ -5,6 +5,7 @@ This repository is a small orchestration runtime built around three stages:
 1. Normalize raw requirements.
 2. Create a Product Owner brief.
 3. Create a Developer plan and optionally review it.
+4. In delivery mode, generate a concrete implementation bundle and write it into the target workspace.
 
 It uses both the OpenAI SDK and the OpenAI Agents SDK.
 
@@ -36,6 +37,15 @@ Reviewer agent (sync mode only)
         |
         v
 ProductReview
+        |
+        v
+Developer Implementation agent (delivery mode only)
+        |
+        v
+DeveloperImplementationBundle
+        |
+        v
+Files written to target workspace
 ```
 
 ## Main Pieces
@@ -44,15 +54,17 @@ ProductReview
 
 The command entry point is [src/cli.ts](/Users/derem/cloud/ai/sample_for_another_team/src/cli.ts#L1).
 
-It supports three commands:
+It supports four commands:
 
 - `sync <requirements-file>`
 - `async <requirements-file>`
 - `developer <brief-json>`
+- `deliver <requirements-file>`
 
 `sync` runs the full flow.
 `async` stops after the Product Owner brief is created.
 `developer` resumes from an existing saved brief.
+`deliver` runs the full flow and writes the generated project files.
 
 ## 2. Requirement normalization
 
@@ -73,12 +85,13 @@ This is intentionally the first step because raw markdown is unstructured and ma
 
 The structured outputs are defined in [src/schemas.ts](/Users/derem/cloud/ai/sample_for_another_team/src/schemas.ts#L1).
 
-The system uses four schema types:
+The system uses five schema types:
 
 - `RequirementPacket`
 - `ProductOwnerBrief`
 - `DeveloperPlan`
 - `ProductReview`
+- `DeveloperImplementationBundle`
 
 These schemas are important because they make each stage explicit and machine-readable. Instead of passing free-form text between agents, the system passes validated objects.
 
@@ -99,11 +112,12 @@ This means the runtime does not hardcode all instructions in one file. It builds
 
 ## 5. Role agents
 
-The three role agents live here:
+The role agents live here:
 
 - [src/agents/productOwner.ts](/Users/derem/cloud/ai/sample_for_another_team/src/agents/productOwner.ts#L1)
 - [src/agents/developer.ts](/Users/derem/cloud/ai/sample_for_another_team/src/agents/developer.ts#L1)
 - [src/agents/reviewer.ts](/Users/derem/cloud/ai/sample_for_another_team/src/agents/reviewer.ts#L1)
+- [src/agents/developerImplementation.ts](/Users/derem/cloud/ai/sample_for_another_team/src/agents/developerImplementation.ts#L1)
 
 Each agent:
 
@@ -117,6 +131,7 @@ The roles are separated on purpose:
 - Product Owner creates a developer-ready brief
 - Developer creates an implementation plan
 - Reviewer checks the Developer output against the Product Owner brief
+- Developer Implementation turns the accepted plan into concrete files
 
 ## 6. Orchestration engine
 
@@ -165,6 +180,17 @@ This mode is the resume point for delegated work.
 
 This mode is for a synchronous closed loop where the Product Owner side also checks the Developer output immediately.
 
+### `runDelivery`
+
+`runDelivery()` does this:
+
+1. Run the same Product Owner -> Developer -> Reviewer flow as `runSync()`.
+2. Run the Developer Implementation agent against the accepted brief and plan.
+3. Save `implementation-bundle.json`.
+4. Write the generated files into `target_workspace`, which defaults to a folder inside `~/Downloads`.
+
+This mode is the end-to-end autonomous path. It is the command that actually creates the project outside the orchestration repo.
+
 ## 7. Conversation and state handling
 
 The runtime uses server-side conversations and Agents SDK sessions together.
@@ -191,7 +217,7 @@ The model does not automatically see local context unless it is included in agen
 
 Each run is saved under `.runs/<run-id>/`.
 
-The runtime also updates `.runs/latest/`.
+The runtime also maintains `.runs/latest/`, but only for completed commands. Intermediate stages inside `sync` and `deliver` do not rewrite `latest`.
 
 Saved files can include:
 
@@ -200,8 +226,11 @@ Saved files can include:
 - `brief.json`
 - `developer-plan.json`
 - `review.json`
+- `implementation-bundle.json`
 
-This makes it easy to pause after Product Owner output, resume Developer work later, or inspect the latest run without looking up a run id.
+When `.runs/latest/` is updated, the directory is reset before the new snapshot is written. That means old files from a different mode do not leak into the current snapshot.
+
+This makes it easy to pause after Product Owner output, resume Developer work later, inspect the last completed run, or recover the exact generated file bundle from delivery mode.
 
 ## 9. Requirements and Downloads target
 
@@ -227,16 +256,17 @@ Commands:
 npm run run:async
 npm run run:developer
 npm run run:sync
+npm run run:deliver
 ```
 
-## 11. Current limitation
+## 11. Delivery behavior
 
-The engine currently plans and coordinates work. It does not yet execute the calculator implementation in `Downloads` by itself.
+The delivery path now writes the generated project into the target workspace directly.
 
-That next step would usually be one of these:
+For the current calculator requirement, that target workspace resolves to a folder inside `~/Downloads`.
 
-- add a file-writing execution tool layer
-- let the Developer stage call a controlled local tool
-- create a follow-up worker that turns `DeveloperPlan` into real files
+The main boundary that remains is quality control, not file creation:
 
-Right now, the repository is strongest as an orchestration and handoff layer, not as a full autonomous builder.
+- the implementation is generated from a structured bundle
+- the engine validates structure and path safety before writing files
+- browser or human review is still the right place to confirm UX and edge cases for more complex projects

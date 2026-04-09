@@ -9,7 +9,6 @@ function buildInstructions(prompts: PromptBundle, runContext: RunContext<Workflo
     prompts.repoGuide,
     prompts.developerAgent,
     prompts.developerSkill,
-    prompts.researchNotes,
     'Runtime instructions:',
     `- Workflow mode: ${runContext.context.mode}`,
     `- Requirement file: ${runContext.context.requirementPath}`,

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { DeveloperImplementationBundle } from '../schemas.ts';
@@ -16,6 +16,11 @@ export async function readUtf8(filePath: string): Promise<string> {
 
 export async function ensureDir(dirPath: string): Promise<void> {
   await mkdir(dirPath, { recursive: true });
+}
+
+export async function resetDir(dirPath: string): Promise<void> {
+  await rm(dirPath, { recursive: true, force: true });
+  await ensureDir(dirPath);
 }
 
 export async function writeJson(filePath: string, value: unknown): Promise<void> {

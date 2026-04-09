@@ -15,6 +15,7 @@ import {
   ensureDir,
   loadRequirementWorkspace,
   readUtf8,
+  resetDir,
   writeJson,
   writeWorkspaceFiles,
 } from '../lib/files.ts';
@@ -32,6 +33,9 @@ export class OpenAIOrchestrationEngine {
   readonly client: OpenAI;
   readonly config: RuntimeConfig;
   readonly prompts: PromptBundle;
+  private availableModelIdsPromise?: Promise<Set<string>>;
+  private executionModelPromise?: Promise<string>;
+  private reasoningModelPromise?: Promise<string>;
 
   constructor(config: RuntimeConfig, prompts: PromptBundle) {
     this.config = config;
@@ -41,10 +45,10 @@ export class OpenAIOrchestrationEngine {
 
   async runAsync(requirementPath: string): Promise<RunArtifacts> {
     const runId = this.createRunId('async');
-    return this.runBriefStage(requirementPath, runId, 'async');
+    return this.runBriefStage(requirementPath, runId, 'async', true);
   }
 
-  async runDeveloper(briefPath: string): Promise<RunArtifacts> {
+  async runDeveloper(briefPath: string, updateLatest = true): Promise<RunArtifacts> {
     const resolvedBriefPath = path.resolve(briefPath);
     const runDir = path.dirname(resolvedBriefPath);
     const meta = await this.readMeta(path.join(runDir, 'meta.json'));
@@ -62,7 +66,8 @@ export class OpenAIOrchestrationEngine {
     });
 
     const runner = this.createRunner('Developer Planning', meta.run_id);
-    const agent = createDeveloperAgent(this.prompts, this.config.model);
+    const executionModel = await this.getExecutionModel();
+    const agent = createDeveloperAgent(this.prompts, executionModel);
     const result = await this.withApiRetry('developer planning', () =>
       runner.run(
         agent,
@@ -95,6 +100,7 @@ export class OpenAIOrchestrationEngine {
       requirement,
       brief,
       developerPlan,
+      updateLatest,
     });
   }
 
@@ -113,38 +119,40 @@ export class OpenAIOrchestrationEngine {
       reviewedArtifacts.requirement.target_workspace,
     );
 
-    const session = new OpenAIConversationsSession({
-      conversationId: reviewedArtifacts.conversationId,
-    });
-
     const runner = this.createRunner('Developer Implementation', reviewedArtifacts.runId);
-    const agent = createDeveloperImplementationAgent(this.prompts, this.config.model);
+    const executionModel = await this.getExecutionModel();
+    const agent = createDeveloperImplementationAgent(this.prompts, executionModel);
+    const implementationRequest = [
+      `Target workspace: ${reviewedArtifacts.requirement.target_workspace}`,
+      '',
+      `Objective: ${reviewedArtifacts.brief?.objective ?? ''}`,
+      '',
+      'Constraints:',
+      ...(reviewedArtifacts.brief?.constraints ?? []).map((item) => `- ${item}`),
+      '',
+      'Acceptance criteria:',
+      ...(reviewedArtifacts.brief?.acceptance_criteria ?? []).map((item) => `- ${item}`),
+      '',
+      'Required files:',
+      ...(reviewedArtifacts.developerPlan?.files_or_modules ?? []).map((item) => `- ${item}`),
+      '',
+      'Implementation steps:',
+      ...(reviewedArtifacts.developerPlan?.implementation_steps ?? []).map((item) => `- ${item}`),
+      '',
+      'Generate the implementation files now as a minimal, working static project.',
+    ].join('\n');
+
     const result = await this.withApiRetry('developer implementation', () =>
       runner.run(
         agent,
         [
           {
             role: 'user',
-            content: [
-              'Requirement packet:',
-              JSON.stringify(reviewedArtifacts.requirement, null, 2),
-              '',
-              'Product-owner brief:',
-              JSON.stringify(reviewedArtifacts.brief, null, 2),
-              '',
-              'Accepted developer plan:',
-              JSON.stringify(reviewedArtifacts.developerPlan, null, 2),
-              '',
-              'Accepted product review:',
-              JSON.stringify(reviewedArtifacts.review, null, 2),
-              '',
-              'Generate the implementation files now.',
-            ].join('\n'),
+            content: implementationRequest,
           },
         ],
         {
           context,
-          session,
         },
       ),
     );
@@ -166,6 +174,7 @@ export class OpenAIOrchestrationEngine {
       developerPlan: reviewedArtifacts.developerPlan,
       review: reviewedArtifacts.review,
       implementationBundle,
+      updateLatest: true,
     });
   }
 
@@ -173,16 +182,21 @@ export class OpenAIOrchestrationEngine {
     requirementPath: string,
     runId: string,
     mode: PersistedRunMeta['mode'],
+    updateLatest: boolean,
   ): Promise<RunArtifacts> {
     const workspace = await loadRequirementWorkspace(requirementPath);
     const conversationId = await this.withApiRetry(
       'create conversation',
       () => this.createConversation(runId, mode, workspace.primaryRequirementPath),
     );
+    const reasoningModel = await this.getReasoningModel();
+    const executionModel = await this.getExecutionModel();
     const requirement = await this.withApiRetry('normalize requirement', () =>
       normalizeRequirementWithSDK({
         client: this.client,
         config: this.config,
+        model: reasoningModel,
+        fallbackModel: executionModel,
         conversationId,
         workspace,
       }),
@@ -199,7 +213,7 @@ export class OpenAIOrchestrationEngine {
     });
 
     const runner = this.createRunner('Product Owner Brief', runId);
-    const agent = createProductOwnerAgent(this.prompts, this.config.model);
+    const agent = createProductOwnerAgent(this.prompts, executionModel);
     const result = await this.withApiRetry('product owner brief', () =>
       runner.run(
         agent,
@@ -225,6 +239,7 @@ export class OpenAIOrchestrationEngine {
       targetWorkspace: requirement.target_workspace,
       requirement,
       brief,
+      updateLatest,
     });
   }
 
@@ -233,8 +248,11 @@ export class OpenAIOrchestrationEngine {
     runId: string,
     finalMode: 'sync' | 'delivery',
   ): Promise<RunArtifacts> {
-    const briefArtifacts = await this.runBriefStage(requirementPath, runId, finalMode);
-    const developerArtifacts = await this.runDeveloper(path.join(briefArtifacts.runDir, 'brief.json'));
+    const briefArtifacts = await this.runBriefStage(requirementPath, runId, finalMode, false);
+    const developerArtifacts = await this.runDeveloper(
+      path.join(briefArtifacts.runDir, 'brief.json'),
+      false,
+    );
     const context = this.createContext(
       developerArtifacts.runId,
       finalMode,
@@ -247,7 +265,8 @@ export class OpenAIOrchestrationEngine {
     });
 
     const runner = this.createRunner('Product Owner Review', developerArtifacts.runId);
-    const agent = createReviewerAgent(this.prompts, this.config.model);
+    const executionModel = await this.getExecutionModel();
+    const agent = createReviewerAgent(this.prompts, executionModel);
     const result = await this.withApiRetry('product owner review', () =>
       runner.run(
         agent,
@@ -284,11 +303,62 @@ export class OpenAIOrchestrationEngine {
       brief: developerArtifacts.brief,
       developerPlan: developerArtifacts.developerPlan,
       review,
+      updateLatest: finalMode === 'sync',
     });
   }
 
   private createRunId(prefix: string): string {
     return `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  }
+
+  private async getExecutionModel(): Promise<string> {
+    if (!this.executionModelPromise) {
+      this.executionModelPromise = this.resolveStructuredOutputModel(
+        'execution',
+        [this.config.model, 'gpt-5.2', 'gpt-5.2-chat-latest', 'gpt-3.5-turbo'],
+      );
+    }
+
+    return this.executionModelPromise;
+  }
+
+  private async getReasoningModel(): Promise<string> {
+    if (!this.reasoningModelPromise) {
+      this.reasoningModelPromise = this.resolveStructuredOutputModel(
+        'reasoning',
+        [this.config.reasoningModel, this.config.model, 'gpt-5.2', 'gpt-5.2-chat-latest'],
+      );
+    }
+
+    return this.reasoningModelPromise;
+  }
+
+  private async resolveStructuredOutputModel(label: string, candidates: string[]): Promise<string> {
+    const availableModelIds = await this.getAvailableModelIds();
+    for (const candidate of candidates) {
+      if (availableModelIds.has(candidate) && this.supportsStructuredOutputs(candidate)) {
+        if (candidate !== candidates[0]) {
+          console.warn(`[fallback] ${label} model ${candidates[0]} is unavailable; using ${candidate}`);
+        }
+        return candidate;
+      }
+    }
+
+    return candidates[0];
+  }
+
+  private supportsStructuredOutputs(model: string): boolean {
+    return !model.startsWith('gpt-3.5');
+  }
+
+  private async getAvailableModelIds(): Promise<Set<string>> {
+    if (!this.availableModelIdsPromise) {
+      this.availableModelIdsPromise = this.client.models
+        .list()
+        .then((page) => new Set(page.data.map((model) => model.id)));
+    }
+
+    return this.availableModelIdsPromise;
   }
 
   private createContext(
@@ -391,6 +461,7 @@ export class OpenAIOrchestrationEngine {
     developerPlan?: DeveloperPlan;
     review?: ProductReview;
     implementationBundle?: DeveloperImplementationBundle;
+    updateLatest?: boolean;
   }): Promise<RunArtifacts> {
     const runDir = path.join(this.config.runsDir, args.runId);
     const latestDir = path.join(this.config.runsDir, 'latest');
@@ -407,30 +478,45 @@ export class OpenAIOrchestrationEngine {
     };
 
     await ensureDir(runDir);
-    await ensureDir(latestDir);
     await writeJson(path.join(runDir, 'meta.json'), meta);
     await writeJson(path.join(runDir, 'requirement.json'), args.requirement);
-    await writeJson(path.join(latestDir, 'meta.json'), meta);
-    await writeJson(path.join(latestDir, 'requirement.json'), args.requirement);
 
     if (args.brief) {
       await writeJson(path.join(runDir, 'brief.json'), args.brief);
-      await writeJson(path.join(latestDir, 'brief.json'), args.brief);
     }
 
     if (args.developerPlan) {
       await writeJson(path.join(runDir, 'developer-plan.json'), args.developerPlan);
-      await writeJson(path.join(latestDir, 'developer-plan.json'), args.developerPlan);
     }
 
     if (args.review) {
       await writeJson(path.join(runDir, 'review.json'), args.review);
-      await writeJson(path.join(latestDir, 'review.json'), args.review);
     }
 
     if (args.implementationBundle) {
       await writeJson(path.join(runDir, 'implementation-bundle.json'), args.implementationBundle);
-      await writeJson(path.join(latestDir, 'implementation-bundle.json'), args.implementationBundle);
+    }
+
+    if (args.updateLatest) {
+      await resetDir(latestDir);
+      await writeJson(path.join(latestDir, 'meta.json'), meta);
+      await writeJson(path.join(latestDir, 'requirement.json'), args.requirement);
+
+      if (args.brief) {
+        await writeJson(path.join(latestDir, 'brief.json'), args.brief);
+      }
+
+      if (args.developerPlan) {
+        await writeJson(path.join(latestDir, 'developer-plan.json'), args.developerPlan);
+      }
+
+      if (args.review) {
+        await writeJson(path.join(latestDir, 'review.json'), args.review);
+      }
+
+      if (args.implementationBundle) {
+        await writeJson(path.join(latestDir, 'implementation-bundle.json'), args.implementationBundle);
+      }
     }
 
     return {
