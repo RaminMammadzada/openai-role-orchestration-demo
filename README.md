@@ -1,15 +1,31 @@
-# Sample For Another Team
+# OpenAI Role Orchestration Demo
 
-Small orchestration demo built with the OpenAI SDK and OpenAI Agents SDK.
+Small role-based orchestration demo built with the OpenAI SDK and the OpenAI Agents SDK.
 
-It takes markdown requirements, turns them into a structured requirement packet, generates a Product Owner brief, generates a Developer plan, and can optionally run a final review pass.
+The project turns markdown requirements into structured workflow artifacts and coordinates three roles:
 
-## Main Files
+- Product Owner
+- Developer
+- Reviewer
 
-- `requirements/` holds the source product requirements and todo items.
-- `src/engine/orchestrationEngine.ts` runs the workflow.
+## What It Does
+
+The runtime reads requirement files from `requirements/`, normalizes them into a strict schema, and then runs a staged workflow:
+
+1. Convert raw requirement markdown into a `RequirementPacket`.
+2. Ask the Product Owner agent to create a developer-ready brief.
+3. Ask the Developer agent to produce an implementation plan.
+4. Optionally ask the Reviewer agent to validate the plan against the brief.
+
+This gives you a simple example of async and sync orchestration with structured outputs between agent stages.
+
+## Architecture
+
+- `src/lib/openai.ts` uses the base OpenAI SDK for requirement normalization.
 - `src/agents/` defines the Product Owner, Developer, and Reviewer agents.
-- `docs/how-the-system-works.md` explains the architecture in more detail.
+- `src/engine/orchestrationEngine.ts` coordinates the workflow, session state, and saved artifacts.
+- `.runs/` stores generated requirement packets, briefs, plans, and reviews.
+- `docs/how-the-system-works.md` explains the runtime in more detail.
 
 ## Run
 
@@ -21,3 +37,9 @@ npm run run:async
 npm run run:developer
 npm run run:sync
 ```
+
+## Notes
+
+- `run:async` stops after the Product Owner brief is created.
+- `run:developer` resumes from the latest saved brief.
+- `run:sync` runs the full Product Owner -> Developer -> Reviewer loop.
