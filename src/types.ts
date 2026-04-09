@@ -1,4 +1,7 @@
 import type {
+  CollaborationComment,
+  CollaborationExchange,
+  CollaborationWorkspace,
   DeveloperImplementationBundle,
   DeveloperPlan,
   ProductOwnerBrief,
@@ -37,3 +40,16 @@ export type PersistedRunMeta = {
   reasoning_model: string;
   created_at: string;
 };
+
+export type LatestRunSnapshot = {
+  meta?: PersistedRunMeta;
+  requirement?: RequirementPacket;
+  brief?: ProductOwnerBrief;
+  developerPlan?: DeveloperPlan;
+  review?: ProductReview;
+  implementationBundle?: DeveloperImplementationBundle;
+};
+
+export type CollaborationWorkspacePayload = CollaborationWorkspace;
+export type CollaborationCommentPayload = CollaborationComment;
+export type CollaborationExchangePayload = CollaborationExchange;

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orbit Flow Deck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero panel">
+        <div>
+          <p class="eyebrow">Future Company Environment</p>
+          <h1>Orbit Flow Deck</h1>
+          <p class="hero-copy">
+            A shared command bridge for Product Owners and developers. Shape the
+            loan-term requirement, let AI translate it into technical work, and
+            keep business intent visible while implementation moves.
+          </p>
+        </div>
+        <div class="hero-metrics">
+          <article class="metric">
+            <span class="metric-label">Active Challenge</span>
+            <strong id="metric-project">Loading...</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Current Repo</span>
+            <strong id="metric-repo">Loading...</strong>
+          </article>
+          <article class="metric">
+            <span class="metric-label">Latest Run</span>
+            <strong id="metric-run">No run yet</strong>
+          </article>
+        </div>
+      </header>
+
+      <main class="deck-grid">
+        <section class="panel command-deck">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Product Owner Deck</p>
+              <h2>Live Requirement Editor</h2>
+            </div>
+            <button class="primary-button" id="save-workspace">Save Requirement</button>
+          </div>
+
+          <form id="workspace-form" class="workspace-form">
+            <label>
+              Workspace Title
+              <input name="workspace_title" type="text" />
+            </label>
+            <label>
+              Product / Workspace Name
+              <input name="project_name" type="text" />
+            </label>
+            <label>
+              Repository Name
+              <input name="repository_name" type="text" />
+            </label>
+            <label class="full">
+              Business Goal
+              <textarea name="business_goal" rows="3"></textarea>
+            </label>
+            <label class="full">
+              Requested Feature
+              <textarea name="feature_request" rows="3"></textarea>
+            </label>
+            <label class="full">
+              Target User
+              <textarea name="target_user" rows="2"></textarea>
+            </label>
+            <label class="full">
+              Problem Statement
+              <textarea name="problem_statement" rows="4"></textarea>
+            </label>
+            <label class="full">
+              Repository Context
+              <textarea name="repository_context" rows="4"></textarea>
+            </label>
+            <label class="full">
+              Futuristic Vision
+              <textarea name="futuristic_vision" rows="4"></textarea>
+            </label>
+            <label class="full">
+              Product Owner Notes
+              <textarea name="product_owner_notes" rows="3"></textarea>
+            </label>
+            <label>
+              Collaboration Goals
+              <textarea name="collaboration_goals" rows="6" data-list></textarea>
+            </label>
+            <label>
+              Constraints
+              <textarea name="constraints" rows="6" data-list></textarea>
+            </label>
+            <label>
+              In Scope
+              <textarea name="in_scope" rows="7" data-list></textarea>
+            </label>
+            <label>
+              Out of Scope
+              <textarea name="out_of_scope" rows="7" data-list></textarea>
+            </label>
+            <label>
+              Acceptance Criteria
+              <textarea name="acceptance_criteria" rows="8" data-list></textarea>
+            </label>
+            <label>
+              Validation Checks
+              <textarea name="validation_checks" rows="8" data-list></textarea>
+            </label>
+            <label class="full">
+              Product Owner Questions
+              <textarea name="product_owner_questions" rows="5" data-list></textarea>
+            </label>
+          </form>
+        </section>
+
+        <section class="panel preview-deck">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Generated Artifacts</p>
+              <h2>Requirement And Todo Mirrors</h2>
+            </div>
+            <div class="path-stack">
+              <code id="requirement-path">requirements/loan-collaboration.md</code>
+              <code id="todo-path">requirements/loan-collaboration.todo.md</code>
+            </div>
+          </div>
+          <div class="preview-grid">
+            <article>
+              <h3>Requirement Markdown</h3>
+              <pre id="requirement-markdown"></pre>
+            </article>
+            <article>
+              <h3>Auto Todo</h3>
+              <pre id="todo-markdown"></pre>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel collaboration-deck">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Human Collaboration</p>
+              <h2>Developer And Product Thread</h2>
+            </div>
+          </div>
+          <form id="comment-form" class="inline-form">
+            <label>
+              Author
+              <select name="author_role">
+                <option value="developer">Developer</option>
+                <option value="product_owner">Product Owner</option>
+              </select>
+            </label>
+            <label>
+              Kind
+              <select name="kind">
+                <option value="comment">Comment</option>
+                <option value="question">Question</option>
+                <option value="decision">Decision</option>
+              </select>
+            </label>
+            <label>
+              Section
+              <input name="section" type="text" placeholder="acceptance criteria" />
+            </label>
+            <label class="full">
+              Message
+              <textarea name="message" rows="3"></textarea>
+            </label>
+            <button class="secondary-button" type="submit">Post To Thread</button>
+          </form>
+          <div class="thread-list" id="comment-list"></div>
+        </section>
+
+        <section class="panel ai-deck">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">AI Bridge</p>
+              <h2>Ask The Repo</h2>
+            </div>
+            <span class="status-pill" id="openai-status">Checking key...</span>
+          </div>
+
+          <div class="quick-actions">
+            <button class="ghost-button" data-role="product_owner" data-question="What does this prototype already automate for the Product Owner?">
+              PO Quick Brief
+            </button>
+            <button class="ghost-button" data-role="developer" data-question="Which files are most likely to change for the loan-term feature?">
+              Developer File Risk
+            </button>
+            <button class="ghost-button" data-role="product_owner" data-question="Explain the latest technical work in business language.">
+              Translate Latest Run
+            </button>
+          </div>
+
+          <form id="question-form" class="inline-form">
+            <label>
+              Ask As
+              <select name="role">
+                <option value="product_owner">Product Owner</option>
+                <option value="developer">Developer</option>
+              </select>
+            </label>
+            <label class="full">
+              Question
+              <textarea name="question" rows="3"></textarea>
+            </label>
+            <button class="secondary-button" type="submit">Ask AI</button>
+          </form>
+          <div class="thread-list" id="qa-list"></div>
+        </section>
+
+        <section class="panel orchestration-deck">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Orchestration</p>
+              <h2>Business To Technical Flight Path</h2>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button orchestration-action" data-mode="async">Generate Brief</button>
+              <button class="ghost-button orchestration-action" data-mode="sync">Review Plan</button>
+              <button class="primary-button orchestration-action" data-mode="deliver">Ship Bundle</button>
+            </div>
+          </div>
+          <div class="run-summary" id="run-summary"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="thread-item-template">
+      <article class="thread-item">
+        <div class="thread-meta">
+          <span class="role-badge"></span>
+          <span class="kind-badge"></span>
+          <span class="section-tag"></span>
+          <time></time>
+        </div>
+        <p class="thread-message"></p>
+      </article>
+    </template>
+
+    <template id="qa-item-template">
+      <article class="qa-item">
+        <div class="thread-meta">
+          <span class="role-badge"></span>
+          <time></time>
+        </div>
+        <p class="thread-message question"></p>
+        <div class="qa-answer"></div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

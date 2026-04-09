@@ -6,6 +6,7 @@
   "description": "Role-based orchestration engine using the OpenAI SDK and OpenAI Agents SDK.",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "run:ui": "node src/server.ts",
     "run:sync": "node src/cli.ts sync requirements/simple-calculator.md",
     "run:async": "node src/cli.ts async requirements/simple-calculator.md",
     "run:developer": "node src/cli.ts developer .runs/latest/brief.json",

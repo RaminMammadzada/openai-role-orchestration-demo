@@ -65,13 +65,25 @@ export async function writeWorkspaceFiles(
 export async function loadRequirementWorkspace(primaryRequirementPath: string): Promise<RequirementWorkspace> {
   const resolvedRequirementPath = path.resolve(primaryRequirementPath);
   const requirementsDir = path.dirname(resolvedRequirementPath);
-  const todoPath = path.join(requirementsDir, 'todo.md');
+  const requirementBaseName = path.basename(
+    resolvedRequirementPath,
+    path.extname(resolvedRequirementPath),
+  );
+  const todoCandidates = [
+    path.join(requirementsDir, `${requirementBaseName}.todo.md`),
+    path.join(requirementsDir, 'todo.md'),
+  ];
 
+  let todoPath: string | undefined;
   let todoText: string | undefined;
-  try {
-    todoText = await readUtf8(todoPath);
-  } catch {
-    todoText = undefined;
+  for (const candidate of todoCandidates) {
+    try {
+      todoText = await readUtf8(candidate);
+      todoPath = candidate;
+      break;
+    } catch {
+      todoText = undefined;
+    }
   }
 
   return {
