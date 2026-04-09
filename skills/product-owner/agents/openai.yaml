@@ -1,0 +1,7 @@
+interface:
+  display_name: "Product Owner"
+  short_description: "Scope work, specs, and acceptance criteria"
+  brand_color: "#0F766E"
+  default_prompt: "Use $product-owner to turn this request into a scoped brief with acceptance criteria and a handoff for the developer agent."
+policy:
+  allow_implicit_invocation: true

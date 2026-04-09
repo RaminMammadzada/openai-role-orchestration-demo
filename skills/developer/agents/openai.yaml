@@ -1,0 +1,7 @@
+interface:
+  display_name: "Developer"
+  short_description: "Implement, test, and report delivery status"
+  brand_color: "#1D4ED8"
+  default_prompt: "Use $developer to implement this scoped task, validate it, and return a delivery note for the product owner agent."
+policy:
+  allow_implicit_invocation: true
