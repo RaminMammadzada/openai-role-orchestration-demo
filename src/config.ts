@@ -6,6 +6,8 @@ export type RuntimeConfig = {
   repoRoot: string;
   runsDir: string;
   tracingDisabled: boolean;
+  apiMaxRetries: number;
+  apiRetryBaseDelayMs: number;
 };
 
 export function loadConfig(repoRoot: string): RuntimeConfig {
@@ -17,6 +19,8 @@ export function loadConfig(repoRoot: string): RuntimeConfig {
     tracingDisabled:
       process.env.OPENAI_AGENTS_DISABLE_TRACING === '1' ||
       process.env.OPENAI_AGENTS_DISABLE_TRACING === 'true',
+    apiMaxRetries: Number.parseInt(process.env.OPENAI_API_MAX_RETRIES ?? '4', 10),
+    apiRetryBaseDelayMs: Number.parseInt(process.env.OPENAI_API_RETRY_BASE_DELAY_MS ?? '5000', 10),
   };
 }
 

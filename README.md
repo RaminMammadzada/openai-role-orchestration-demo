@@ -43,3 +43,4 @@ npm run run:sync
 - `run:async` stops after the Product Owner brief is created.
 - `run:developer` resumes from the latest saved brief.
 - `run:sync` runs the full Product Owner -> Developer -> Reviewer loop.
+- The runtime retries on OpenAI rate limits; on low-RPM accounts a sync run may pause briefly before continuing.

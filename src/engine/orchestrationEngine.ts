@@ -29,46 +29,7 @@ export class OpenAIOrchestrationEngine {
 
   async runAsync(requirementPath: string): Promise<RunArtifacts> {
     const runId = this.createRunId('async');
-    const workspace = await loadRequirementWorkspace(requirementPath);
-    const conversationId = await this.createConversation(runId, 'async', workspace.primaryRequirementPath);
-    const requirement = await normalizeRequirementWithSDK({
-      client: this.client,
-      config: this.config,
-      conversationId,
-      workspace,
-    });
-    const context = this.createContext(runId, 'async', workspace.primaryRequirementPath, requirement.target_workspace);
-
-    const session = new OpenAIConversationsSession({
-      conversationId,
-    });
-
-    const runner = this.createRunner('Product Owner Brief', runId);
-    const agent = createProductOwnerAgent(this.prompts, this.config.model);
-    const result = await runner.run(
-      agent,
-      [
-        {
-          role: 'user',
-          content: JSON.stringify(requirement, null, 2),
-        },
-      ],
-      {
-        context,
-        session,
-      },
-    );
-
-    const brief = this.expectOutput<ProductOwnerBrief>(result.finalOutput, 'product owner brief');
-    return this.persistRun({
-      runId,
-      mode: 'async',
-      conversationId,
-      requirementPath: workspace.primaryRequirementPath,
-      targetWorkspace: requirement.target_workspace,
-      requirement,
-      brief,
-    });
+    return this.runBriefStage(requirementPath, runId, 'async');
   }
 
   async runDeveloper(briefPath: string): Promise<RunArtifacts> {
@@ -90,24 +51,26 @@ export class OpenAIOrchestrationEngine {
 
     const runner = this.createRunner('Developer Planning', meta.run_id);
     const agent = createDeveloperAgent(this.prompts, this.config.model);
-    const result = await runner.run(
-      agent,
-      [
+    const result = await this.withApiRetry('developer planning', () =>
+      runner.run(
+        agent,
+        [
+          {
+            role: 'user',
+            content: [
+              'Requirement packet:',
+              JSON.stringify(requirement, null, 2),
+              '',
+              'Approved product-owner brief:',
+              JSON.stringify(brief, null, 2),
+            ].join('\n'),
+          },
+        ],
         {
-          role: 'user',
-          content: [
-            'Requirement packet:',
-            JSON.stringify(requirement, null, 2),
-            '',
-            'Approved product-owner brief:',
-            JSON.stringify(brief, null, 2),
-          ].join('\n'),
+          context,
+          session,
         },
-      ],
-      {
-        context,
-        session,
-      },
+      ),
     );
 
     const developerPlan = this.expectOutput<DeveloperPlan>(result.finalOutput, 'developer plan');
@@ -124,8 +87,9 @@ export class OpenAIOrchestrationEngine {
   }
 
   async runSync(requirementPath: string): Promise<RunArtifacts> {
-    const asyncArtifacts = await this.runAsync(requirementPath);
-    const developerArtifacts = await this.runDeveloper(path.join(asyncArtifacts.runDir, 'brief.json'));
+    const runId = this.createRunId('sync');
+    const briefArtifacts = await this.runBriefStage(requirementPath, runId, 'sync');
+    const developerArtifacts = await this.runDeveloper(path.join(briefArtifacts.runDir, 'brief.json'));
     const context = this.createContext(
       developerArtifacts.runId,
       'sync',
@@ -139,27 +103,29 @@ export class OpenAIOrchestrationEngine {
 
     const runner = this.createRunner('Product Owner Review', developerArtifacts.runId);
     const agent = createReviewerAgent(this.prompts, this.config.model);
-    const result = await runner.run(
-      agent,
-      [
+    const result = await this.withApiRetry('product owner review', () =>
+      runner.run(
+        agent,
+        [
+          {
+            role: 'user',
+            content: [
+              'Requirement packet:',
+              JSON.stringify(developerArtifacts.requirement, null, 2),
+              '',
+              'Product-owner brief:',
+              JSON.stringify(developerArtifacts.brief, null, 2),
+              '',
+              'Developer plan:',
+              JSON.stringify(developerArtifacts.developerPlan, null, 2),
+            ].join('\n'),
+          },
+        ],
         {
-          role: 'user',
-          content: [
-            'Requirement packet:',
-            JSON.stringify(developerArtifacts.requirement, null, 2),
-            '',
-            'Product-owner brief:',
-            JSON.stringify(developerArtifacts.brief, null, 2),
-            '',
-            'Developer plan:',
-            JSON.stringify(developerArtifacts.developerPlan, null, 2),
-          ].join('\n'),
+          context,
+          session,
         },
-      ],
-      {
-        context,
-        session,
-      },
+      ),
     );
 
     const review = this.expectOutput<ProductReview>(result.finalOutput, 'product review');
@@ -173,6 +139,65 @@ export class OpenAIOrchestrationEngine {
       brief: developerArtifacts.brief,
       developerPlan: developerArtifacts.developerPlan,
       review,
+    });
+  }
+
+  private async runBriefStage(
+    requirementPath: string,
+    runId: string,
+    mode: PersistedRunMeta['mode'],
+  ): Promise<RunArtifacts> {
+    const workspace = await loadRequirementWorkspace(requirementPath);
+    const conversationId = await this.withApiRetry(
+      'create conversation',
+      () => this.createConversation(runId, mode, workspace.primaryRequirementPath),
+    );
+    const requirement = await this.withApiRetry('normalize requirement', () =>
+      normalizeRequirementWithSDK({
+        client: this.client,
+        config: this.config,
+        conversationId,
+        workspace,
+      }),
+    );
+    const context = this.createContext(
+      runId,
+      mode === 'developer' ? 'async' : mode,
+      workspace.primaryRequirementPath,
+      requirement.target_workspace,
+    );
+
+    const session = new OpenAIConversationsSession({
+      conversationId,
+    });
+
+    const runner = this.createRunner('Product Owner Brief', runId);
+    const agent = createProductOwnerAgent(this.prompts, this.config.model);
+    const result = await this.withApiRetry('product owner brief', () =>
+      runner.run(
+        agent,
+        [
+          {
+            role: 'user',
+            content: JSON.stringify(requirement, null, 2),
+          },
+        ],
+        {
+          context,
+          session,
+        },
+      ),
+    );
+
+    const brief = this.expectOutput<ProductOwnerBrief>(result.finalOutput, 'product owner brief');
+    return this.persistRun({
+      runId,
+      mode,
+      conversationId,
+      requirementPath: workspace.primaryRequirementPath,
+      targetWorkspace: requirement.target_workspace,
+      requirement,
+      brief,
     });
   }
 
@@ -223,6 +248,50 @@ export class OpenAIOrchestrationEngine {
       throw new Error(`Expected ${label}, but the agent returned no final output.`);
     }
     return value;
+  }
+
+  private async withApiRetry<T>(operationName: string, fn: () => Promise<T>): Promise<T> {
+    let attempt = 1;
+
+    while (true) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (!this.shouldRetryRateLimit(error) || attempt >= this.config.apiMaxRetries) {
+          throw error;
+        }
+
+        const delayMs = this.getRetryDelayMs(error, attempt);
+        console.warn(
+          `[retry] ${operationName} was rate-limited; waiting ${Math.ceil(delayMs / 1000)}s before retry ${attempt + 1}/${this.config.apiMaxRetries}`,
+        );
+        await this.sleep(delayMs);
+        attempt += 1;
+      }
+    }
+  }
+
+  private shouldRetryRateLimit(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return error.message.includes('Rate limit') || error.message.includes('429');
+  }
+
+  private getRetryDelayMs(error: unknown, attempt: number): number {
+    if (error instanceof Error) {
+      const secondsMatch = error.message.match(/try again in (\d+(?:\.\d+)?)s/i);
+      if (secondsMatch) {
+        return Math.ceil(Number.parseFloat(secondsMatch[1]) * 1000) + 1000;
+      }
+    }
+
+    return this.config.apiRetryBaseDelayMs * attempt;
+  }
+
+  private async sleep(delayMs: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   private async persistRun(args: {
