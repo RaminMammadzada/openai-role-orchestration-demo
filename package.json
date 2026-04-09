@@ -1,0 +1,26 @@
+{
+  "name": "sample-for-another-team",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Role-based orchestration engine using the OpenAI SDK and OpenAI Agents SDK.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "run:sync": "node src/cli.ts sync requirements/simple-calculator.md",
+    "run:async": "node src/cli.ts async requirements/simple-calculator.md",
+    "run:developer": "node src/cli.ts developer .runs/latest/brief.json"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@openai/agents": "^0.8.3",
+    "dotenv": "^17.4.1",
+    "openai": "^6.34.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^6.0.2"
+  }
+}
