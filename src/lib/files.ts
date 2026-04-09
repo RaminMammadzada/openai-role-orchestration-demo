@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import type { DeveloperImplementationBundle } from '../schemas.ts';
+
 export type RequirementWorkspace = {
   primaryRequirementPath: string;
   primaryRequirementText: string;
@@ -24,6 +26,35 @@ export async function writeJson(filePath: string, value: unknown): Promise<void>
 export async function writeText(filePath: string, value: string): Promise<void> {
   await ensureDir(path.dirname(filePath));
   await writeFile(filePath, value, 'utf8');
+}
+
+export async function writeWorkspaceFiles(
+  targetWorkspace: string,
+  bundle: DeveloperImplementationBundle,
+): Promise<string[]> {
+  const resolvedWorkspace = path.resolve(targetWorkspace);
+  await ensureDir(resolvedWorkspace);
+
+  const writtenPaths: string[] = [];
+  for (const file of bundle.files) {
+    const trimmedPath = file.relative_path.trim();
+    if (!trimmedPath || path.isAbsolute(trimmedPath)) {
+      throw new Error(`Invalid generated file path: ${file.relative_path}`);
+    }
+
+    const destinationPath = path.resolve(resolvedWorkspace, trimmedPath);
+    if (
+      destinationPath !== resolvedWorkspace &&
+      !destinationPath.startsWith(`${resolvedWorkspace}${path.sep}`)
+    ) {
+      throw new Error(`Generated file escapes target workspace: ${file.relative_path}`);
+    }
+
+    await writeText(destinationPath, file.content);
+    writtenPaths.push(destinationPath);
+  }
+
+  return writtenPaths;
 }
 
 export async function loadRequirementWorkspace(primaryRequirementPath: string): Promise<RequirementWorkspace> {

@@ -8,12 +8,24 @@ import OpenAI from 'openai';
 
 import type { RuntimeConfig } from '../config.ts';
 import { createDeveloperAgent } from '../agents/developer.ts';
+import { createDeveloperImplementationAgent } from '../agents/developerImplementation.ts';
 import { createProductOwnerAgent } from '../agents/productOwner.ts';
 import { createReviewerAgent } from '../agents/reviewer.ts';
-import { ensureDir, loadRequirementWorkspace, readUtf8, writeJson } from '../lib/files.ts';
+import {
+  ensureDir,
+  loadRequirementWorkspace,
+  readUtf8,
+  writeJson,
+  writeWorkspaceFiles,
+} from '../lib/files.ts';
 import { createOpenAIClient, normalizeRequirementWithSDK } from '../lib/openai.ts';
 import type { PromptBundle } from '../prompts.ts';
-import type { DeveloperPlan, ProductOwnerBrief, ProductReview } from '../schemas.ts';
+import type {
+  DeveloperImplementationBundle,
+  DeveloperPlan,
+  ProductOwnerBrief,
+  ProductReview,
+} from '../schemas.ts';
 import type { PersistedRunMeta, RunArtifacts, WorkflowContext } from '../types.ts';
 
 export class OpenAIOrchestrationEngine {
@@ -88,22 +100,26 @@ export class OpenAIOrchestrationEngine {
 
   async runSync(requirementPath: string): Promise<RunArtifacts> {
     const runId = this.createRunId('sync');
-    const briefArtifacts = await this.runBriefStage(requirementPath, runId, 'sync');
-    const developerArtifacts = await this.runDeveloper(path.join(briefArtifacts.runDir, 'brief.json'));
+    return this.runReviewedFlow(requirementPath, runId, 'sync');
+  }
+
+  async runDelivery(requirementPath: string): Promise<RunArtifacts> {
+    const runId = this.createRunId('delivery');
+    const reviewedArtifacts = await this.runReviewedFlow(requirementPath, runId, 'delivery');
     const context = this.createContext(
-      developerArtifacts.runId,
-      'sync',
+      reviewedArtifacts.runId,
+      'delivery',
       path.resolve(requirementPath),
-      developerArtifacts.requirement.target_workspace,
+      reviewedArtifacts.requirement.target_workspace,
     );
 
     const session = new OpenAIConversationsSession({
-      conversationId: developerArtifacts.conversationId,
+      conversationId: reviewedArtifacts.conversationId,
     });
 
-    const runner = this.createRunner('Product Owner Review', developerArtifacts.runId);
-    const agent = createReviewerAgent(this.prompts, this.config.model);
-    const result = await this.withApiRetry('product owner review', () =>
+    const runner = this.createRunner('Developer Implementation', reviewedArtifacts.runId);
+    const agent = createDeveloperImplementationAgent(this.prompts, this.config.model);
+    const result = await this.withApiRetry('developer implementation', () =>
       runner.run(
         agent,
         [
@@ -111,13 +127,18 @@ export class OpenAIOrchestrationEngine {
             role: 'user',
             content: [
               'Requirement packet:',
-              JSON.stringify(developerArtifacts.requirement, null, 2),
+              JSON.stringify(reviewedArtifacts.requirement, null, 2),
               '',
               'Product-owner brief:',
-              JSON.stringify(developerArtifacts.brief, null, 2),
+              JSON.stringify(reviewedArtifacts.brief, null, 2),
               '',
-              'Developer plan:',
-              JSON.stringify(developerArtifacts.developerPlan, null, 2),
+              'Accepted developer plan:',
+              JSON.stringify(reviewedArtifacts.developerPlan, null, 2),
+              '',
+              'Accepted product review:',
+              JSON.stringify(reviewedArtifacts.review, null, 2),
+              '',
+              'Generate the implementation files now.',
             ].join('\n'),
           },
         ],
@@ -128,17 +149,23 @@ export class OpenAIOrchestrationEngine {
       ),
     );
 
-    const review = this.expectOutput<ProductReview>(result.finalOutput, 'product review');
+    const implementationBundle = this.expectOutput<DeveloperImplementationBundle>(
+      result.finalOutput,
+      'developer implementation bundle',
+    );
+    await writeWorkspaceFiles(reviewedArtifacts.requirement.target_workspace, implementationBundle);
+
     return this.persistRun({
-      runId: developerArtifacts.runId,
-      mode: 'sync',
-      conversationId: developerArtifacts.conversationId,
+      runId: reviewedArtifacts.runId,
+      mode: 'delivery',
+      conversationId: reviewedArtifacts.conversationId,
       requirementPath: path.resolve(requirementPath),
-      targetWorkspace: developerArtifacts.requirement.target_workspace,
-      requirement: developerArtifacts.requirement,
-      brief: developerArtifacts.brief,
-      developerPlan: developerArtifacts.developerPlan,
-      review,
+      targetWorkspace: reviewedArtifacts.requirement.target_workspace,
+      requirement: reviewedArtifacts.requirement,
+      brief: reviewedArtifacts.brief,
+      developerPlan: reviewedArtifacts.developerPlan,
+      review: reviewedArtifacts.review,
+      implementationBundle,
     });
   }
 
@@ -198,6 +225,65 @@ export class OpenAIOrchestrationEngine {
       targetWorkspace: requirement.target_workspace,
       requirement,
       brief,
+    });
+  }
+
+  private async runReviewedFlow(
+    requirementPath: string,
+    runId: string,
+    finalMode: 'sync' | 'delivery',
+  ): Promise<RunArtifacts> {
+    const briefArtifacts = await this.runBriefStage(requirementPath, runId, finalMode);
+    const developerArtifacts = await this.runDeveloper(path.join(briefArtifacts.runDir, 'brief.json'));
+    const context = this.createContext(
+      developerArtifacts.runId,
+      finalMode,
+      path.resolve(requirementPath),
+      developerArtifacts.requirement.target_workspace,
+    );
+
+    const session = new OpenAIConversationsSession({
+      conversationId: developerArtifacts.conversationId,
+    });
+
+    const runner = this.createRunner('Product Owner Review', developerArtifacts.runId);
+    const agent = createReviewerAgent(this.prompts, this.config.model);
+    const result = await this.withApiRetry('product owner review', () =>
+      runner.run(
+        agent,
+        [
+          {
+            role: 'user',
+            content: [
+              'Requirement packet:',
+              JSON.stringify(developerArtifacts.requirement, null, 2),
+              '',
+              'Product-owner brief:',
+              JSON.stringify(developerArtifacts.brief, null, 2),
+              '',
+              'Developer plan:',
+              JSON.stringify(developerArtifacts.developerPlan, null, 2),
+            ].join('\n'),
+          },
+        ],
+        {
+          context,
+          session,
+        },
+      ),
+    );
+
+    const review = this.expectOutput<ProductReview>(result.finalOutput, 'product review');
+    return this.persistRun({
+      runId: developerArtifacts.runId,
+      mode: finalMode,
+      conversationId: developerArtifacts.conversationId,
+      requirementPath: path.resolve(requirementPath),
+      targetWorkspace: developerArtifacts.requirement.target_workspace,
+      requirement: developerArtifacts.requirement,
+      brief: developerArtifacts.brief,
+      developerPlan: developerArtifacts.developerPlan,
+      review,
     });
   }
 
@@ -304,6 +390,7 @@ export class OpenAIOrchestrationEngine {
     brief?: ProductOwnerBrief;
     developerPlan?: DeveloperPlan;
     review?: ProductReview;
+    implementationBundle?: DeveloperImplementationBundle;
   }): Promise<RunArtifacts> {
     const runDir = path.join(this.config.runsDir, args.runId);
     const latestDir = path.join(this.config.runsDir, 'latest');
@@ -341,6 +428,11 @@ export class OpenAIOrchestrationEngine {
       await writeJson(path.join(latestDir, 'review.json'), args.review);
     }
 
+    if (args.implementationBundle) {
+      await writeJson(path.join(runDir, 'implementation-bundle.json'), args.implementationBundle);
+      await writeJson(path.join(latestDir, 'implementation-bundle.json'), args.implementationBundle);
+    }
+
     return {
       runId: args.runId,
       runDir,
@@ -349,6 +441,7 @@ export class OpenAIOrchestrationEngine {
       brief: args.brief,
       developerPlan: args.developerPlan,
       review: args.review,
+      implementationBundle: args.implementationBundle,
     };
   }
 

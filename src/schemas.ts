@@ -63,7 +63,22 @@ export const ProductReviewSchema = z.object({
   summary: z.string(),
 });
 
+export const GeneratedFileSchema = z.object({
+  relative_path: z.string(),
+  purpose: z.string(),
+  content: z.string(),
+});
+
+export const DeveloperImplementationBundleSchema = z.object({
+  bundle_id: z.string(),
+  target_workspace: z.string(),
+  files: z.array(GeneratedFileSchema).min(1),
+  implementation_notes: z.array(z.string()).min(1),
+  validation_notes: z.array(z.string()).min(1),
+});
+
 export type RequirementPacket = z.infer<typeof RequirementPacketSchema>;
 export type ProductOwnerBrief = z.infer<typeof ProductOwnerBriefSchema>;
 export type DeveloperPlan = z.infer<typeof DeveloperPlanSchema>;
 export type ProductReview = z.infer<typeof ProductReviewSchema>;
+export type DeveloperImplementationBundle = z.infer<typeof DeveloperImplementationBundleSchema>;

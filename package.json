@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "run:sync": "node src/cli.ts sync requirements/simple-calculator.md",
     "run:async": "node src/cli.ts async requirements/simple-calculator.md",
-    "run:developer": "node src/cli.ts developer .runs/latest/brief.json"
+    "run:developer": "node src/cli.ts developer .runs/latest/brief.json",
+    "run:deliver": "node src/cli.ts deliver requirements/simple-calculator.md"
   },
   "engines": {
     "node": ">=22.19.0"

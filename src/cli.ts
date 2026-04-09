@@ -12,6 +12,7 @@ function usage(): string {
     '  node src/cli.ts sync <requirements-file>',
     '  node src/cli.ts async <requirements-file>',
     '  node src/cli.ts developer <brief-json>',
+    '  node src/cli.ts deliver <requirements-file>',
   ].join('\n');
 }
 
@@ -42,6 +43,12 @@ async function main(): Promise<void> {
 
   if (command === 'developer') {
     const result = await engine.runDeveloper(path.resolve(target));
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (command === 'deliver') {
+    const result = await engine.runDelivery(path.resolve(target));
     console.log(JSON.stringify(result, null, 2));
     return;
   }

@@ -1,6 +1,12 @@
-import type { DeveloperPlan, ProductOwnerBrief, ProductReview, RequirementPacket } from './schemas.ts';
+import type {
+  DeveloperImplementationBundle,
+  DeveloperPlan,
+  ProductOwnerBrief,
+  ProductReview,
+  RequirementPacket,
+} from './schemas.ts';
 
-export type WorkflowMode = 'sync' | 'async' | 'developer';
+export type WorkflowMode = 'sync' | 'async' | 'developer' | 'delivery';
 
 export type WorkflowContext = {
   runId: string;
@@ -18,6 +24,7 @@ export type RunArtifacts = {
   brief?: ProductOwnerBrief;
   developerPlan?: DeveloperPlan;
   review?: ProductReview;
+  implementationBundle?: DeveloperImplementationBundle;
 };
 
 export type PersistedRunMeta = {
